@@ -1,4 +1,6 @@
 local config = require 'config.client'
+local sharedConfig = require 'config.shared'
+local plateUtil = require 'shared.plate'
 
 ---Grants keys for job shared vehicles
 ---@param vehicle number The entity number of the vehicle.
@@ -37,12 +39,12 @@ end
 function HasKeys(vehicle)
     vehicle = vehicle or cache.vehicle
     if not vehicle then return false end
-    local keysList = LocalPlayer.state.keysList
-    if keysList then
-        local sessionId = Entity(vehicle).state.sessionId
-        if keysList[sessionId] then
-            return true
-        end
+
+    local plate = plateUtil.normalizePlate(qbx.getVehiclePlate(vehicle))
+    if not plate then return false end
+
+    if exports.ox_inventory:GetItemCount(sharedConfig.keyItem, { plate = plate }, false) > 0 then
+        return true
     end
 
     local owner = Entity(vehicle).state.owner

@@ -1,5 +1,12 @@
 local config = require 'config.client'
 
+CreateThread(function()
+    while GetResourceState('ox_inventory') ~= 'started' do
+        Wait(100)
+    end
+    exports.ox_inventory:displayMetadata({ plate = locale('metadata.plate') })
+end)
+
 ---client uses key fob to toggle the door locks
 ---@param vehicle number The entity number of the vehicle.
 local function toggleLock(vehicle)

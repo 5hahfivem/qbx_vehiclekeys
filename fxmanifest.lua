@@ -15,6 +15,10 @@ shared_scripts {
     'bridge/qb/shared.lua',
 }
 
+dependencies {
+    'ox_inventory',
+}
+
 client_scripts {
     '@qbx_core/modules/playerdata.lua',
     'client/functions.lua',
@@ -36,7 +40,8 @@ server_scripts {
 files {
     'locales/*.json',
     'config/client.lua',
-    'config/shared.lua'
+    'config/shared.lua',
+    'shared/plate.lua',
 }
 
 lua54 'yes'

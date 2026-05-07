@@ -1,14 +1,5 @@
-local config = require 'config.server'
-local debug = GetConvarInt(('%s-debug'):format(GetCurrentResourceName()), 0) == 1
-
----@alias CitizenId string
----@alias SessionId integer
----@type table<CitizenId, table<SessionId, boolean>>
-local loggedOutKeys = {} ---holds key status for some time after player logs out (Prevents frustration by crashing the client)
-
----@alias LogoutTime integer
----@type table<CitizenId, LogoutTime>
-local logedOutTime = {} ---Life timestamp of the keys of a character who has logged out
+local sharedConfig = require 'config.shared'
+local plateUtil = require 'shared.plate'
 
 ---Gets Citizen Id based on source
 ---@param source number ID of the player
@@ -20,58 +11,33 @@ local function getCitizenId(source)
     return player.PlayerData.citizenid
 end
 
-RegisterNetEvent('QBCore:Server:OnPlayerLoaded', function()
-    local src = source
-    local citizenId = getCitizenId(src)
-    if not citizenId then return end
-    if loggedOutKeys[citizenId] then
-        Player(src).state:set('keysList', loggedOutKeys[citizenId], true)
-        loggedOutKeys[citizenId] = nil
-        logedOutTime[citizenId] = nil
-    end
-end)
-
-local function onPlayerUnload(src)
-    local citizenId = getCitizenId(src)
-    if not citizenId then return end
-    loggedOutKeys[citizenId] = Player(src).state.keysList
-    logedOutTime[citizenId] = os.time()
+---@param vehicle number
+---@return string?
+local function getPlateFromVehicle(vehicle)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then return end
+    return plateUtil.normalizePlate(qbx.getVehiclePlate(vehicle))
 end
 
-RegisterNetEvent('QBCore:Server:OnPlayerUnload', onPlayerUnload)
-
-AddEventHandler('playerDropped', function()
-    onPlayerUnload(source)
-end)
-
----Removes old keys from server memory
-lib.cron.new('*/'..config.runClearCronMinutes ..' * * * *', function ()
-    local time = os.time()
-    local seconds = config.runClearCronMinutes * 60
-    for citizenId, lifetime in pairs(logedOutTime) do
-        if lifetime + seconds < time then
-            loggedOutKeys[citizenId] = nil
-            logedOutTime[citizenId] = nil
-        end
-    end
-end, {debug = debug})
+---@param source number
+---@param plate string
+---@return boolean
+local function playerHasKeyItem(source, plate)
+    return exports.ox_inventory:GetItemCount(source, sharedConfig.keyItem, { plate = plate }, false) > 0
+end
 
 --- Removing the vehicle keys from the user
 ---@param source number ID of the player
 ---@param vehicle number
 ---@param skipNotification? boolean
+---@return boolean?
 function RemoveKeys(source, vehicle, skipNotification)
-    local citizenid = getCitizenId(source)
-    if not citizenid then return end
+    if not getCitizenId(source) then return end
 
-    local keys = Player(source).state.keysList
-    if not keys then return end
+    local plate = getPlateFromVehicle(vehicle)
+    if not plate then return end
 
-    local sessionId = Entity(vehicle).state.sessionId
-    if not keys[sessionId] then return end
-    keys[sessionId] = nil
-
-    Player(source).state:set('keysList', keys, true)
+    local removed = exports.ox_inventory:RemoveItem(source, sharedConfig.keyItem, 1, { plate = plate })
+    if not removed then return end
 
     TriggerClientEvent('qbx_vehiclekeys:client:OnLostKeys', source)
     if not skipNotification then
@@ -83,20 +49,46 @@ end
 
 exports('RemoveKeys', RemoveKeys)
 
+--- Removing the vehicle keys from the user by plate (e.g. when the vehicle is not spawned).
+---@param source number ID of the player
+---@param plate string
+---@param skipNotification? boolean
+---@return boolean?
+function RemoveKeysByPlate(source, plate, skipNotification)
+    if not getCitizenId(source) then return end
+
+    local normalized = plateUtil.normalizePlate(plate)
+    if not normalized then return end
+
+    local removed = exports.ox_inventory:RemoveItem(source, sharedConfig.keyItem, 1, { plate = normalized })
+    if not removed then return end
+
+    TriggerClientEvent('qbx_vehiclekeys:client:OnLostKeys', source)
+    if not skipNotification then
+        exports.qbx_core:Notify(source, locale('notify.keys_removed'))
+    end
+
+    return true
+end
+
+exports('RemoveKeysByPlate', RemoveKeysByPlate)
+
 ---@param source number
 ---@param vehicle number
 ---@param skipNotification? boolean
+---@return boolean?
 function GiveKeys(source, vehicle, skipNotification)
     local citizenid = getCitizenId(source)
     if not citizenid then return end
 
-    local sessionId = Entity(vehicle).state.sessionId or exports.qbx_core:CreateSessionId(vehicle)
-    local keys = Player(source).state.keysList or {}
-    if keys[sessionId] then return end
+    local plate = getPlateFromVehicle(vehicle)
+    if not plate then return end
 
-    keys[sessionId] = true
+    if playerHasKeyItem(source, plate) then return end
 
-    Player(source).state:set('keysList', keys, true)
+    local added = exports.ox_inventory:AddItem(source, sharedConfig.keyItem, 1, { plate = plate })
+    if not added then return end
+
     if not skipNotification then
         exports.qbx_core:Notify(source, locale('notify.keys_taken'))
     end
@@ -105,16 +97,40 @@ end
 
 exports('GiveKeys', GiveKeys)
 
+--- Gives keys to the player by plate (e.g. when the vehicle is not spawned).
+---@param source number
+---@param plate string
+---@param skipNotification? boolean
+---@return boolean?
+function GiveKeysByPlate(source, plate, skipNotification)
+    local citizenid = getCitizenId(source)
+    if not citizenid then return end
+
+    local normalized = plateUtil.normalizePlate(plate)
+    if not normalized then return end
+
+    if playerHasKeyItem(source, normalized) then return end
+
+    local added = exports.ox_inventory:AddItem(source, sharedConfig.keyItem, 1, { plate = normalized })
+    if not added then return end
+
+    if not skipNotification then
+        exports.qbx_core:Notify(source, locale('notify.keys_taken'))
+    end
+    return true
+end
+
+exports('GiveKeysByPlate', GiveKeysByPlate)
+
 ---@param src number
 ---@param vehicle number
 ---@return boolean
 function HasKeys(src, vehicle)
-    local keysList = Player(src).state.keysList
-    if keysList then
-        local sessionId = Entity(vehicle).state.sessionId
-        if keysList[sessionId] then
-            return true
-        end
+    local plate = getPlateFromVehicle(vehicle)
+    if not plate then return false end
+
+    if playerHasKeyItem(src, plate) then
+        return true
     end
 
     local owner = Entity(vehicle).state.owner
@@ -127,6 +143,18 @@ function HasKeys(src, vehicle)
 end
 
 exports('HasKeys', HasKeys)
+
+---@param src number
+---@param plate string
+---@return boolean
+function HasKeysByPlate(src, plate)
+    local normalized = plateUtil.normalizePlate(plate)
+    if not normalized then return false end
+
+    return playerHasKeyItem(src, normalized)
+end
+
+exports('HasKeysByPlate', HasKeysByPlate)
 
 lib.callback.register('qbx_vehiclekeys:server:giveKeys', function(source, netId)
     GiveKeys(source, NetworkGetEntityFromNetworkId(netId))

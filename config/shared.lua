@@ -1,4 +1,8 @@
 return {
+    --- ox_inventory item name granted as the physical vehicle key.
+    --- Each key carries `metadata.plate` (normalized, uppercase) tying it to a specific vehicle.
+    keyItem = 'carkeys',
+
     ---For a given vehicle, the config used is based on precendence of:
     ---1. model
     ---2. category from qbx_core shared/vehicles.lua

@@ -52,5 +52,8 @@
     "attempting_carjack": "Attempting Carjacking...",
     "searching_keys": "Searching for the car keys...",
     "takekeys": "Taking keys from body..."
+  },
+  "metadata": {
+    "plate": "Plate"
   }
 }
